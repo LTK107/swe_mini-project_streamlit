@@ -184,4 +184,101 @@ describe("GlobalHotkeys", () => {
 
     expect(onKeyDown).not.toHaveBeenCalled()
   })
+
+  it.each(["r", "c"])(
+    "ignores %s when a custom component prevents the default",
+    key => {
+      const onKeyDown = vi.fn()
+      const onKeyUp = vi.fn()
+
+      render(
+        <GlobalHotkeys keyName="r,c" onKeyDown={onKeyDown} onKeyUp={onKeyUp}>
+          <button
+            aria-label="Custom widget"
+            data-testid="custom-widget"
+            onKeyDown={event => event.preventDefault()}
+          />
+        </GlobalHotkeys>
+      )
+
+      const widget = screen.getByTestId("custom-widget")
+      widget.focus()
+
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      })
+
+      widget.dispatchEvent(event)
+      widget.dispatchEvent(
+        new KeyboardEvent("keyup", {
+          key,
+          bubbles: true,
+          cancelable: true,
+        })
+      )
+
+      expect(event.defaultPrevented).toBe(true)
+      expect(onKeyDown).not.toHaveBeenCalled()
+      expect(onKeyUp).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(["r", "c"])(
+    "ignores %s inside a focusable custom region",
+    async key => {
+      const user = userEvent.setup()
+      const onKeyDown = vi.fn()
+      const onKeyUp = vi.fn()
+      render(
+        <GlobalHotkeys
+          keyName="r,c,esc"
+          onKeyDown={onKeyDown}
+          onKeyUp={onKeyUp}
+        >
+          <main data-testid="main-region">
+            <div data-testid="custom-region">
+              <span>Custom widget</span>
+            </div>
+            <button>Native button</button>
+          </main>
+        </GlobalHotkeys>
+      )
+      const region = screen.getByTestId("custom-region")
+      screen.getByTestId("main-region").tabIndex = 0
+      region.tabIndex = 0
+      region.focus()
+      await user.keyboard(key)
+      expect(onKeyDown).not.toHaveBeenCalled()
+      expect(onKeyUp).not.toHaveBeenCalled()
+
+      await user.keyboard("{Escape}")
+      expect(onKeyDown).toHaveBeenCalledWith("esc", expect.any(KeyboardEvent))
+      expect(onKeyUp).toHaveBeenCalledWith("esc", expect.any(KeyboardEvent))
+
+      onKeyDown.mockClear()
+      onKeyUp.mockClear()
+      screen.getByRole("button").focus()
+      await user.keyboard(key)
+      expect(onKeyDown).toHaveBeenCalledWith(key, expect.any(KeyboardEvent))
+      expect(onKeyUp).toHaveBeenCalledWith(key, expect.any(KeyboardEvent))
+    }
+  )
+
+  it("ignores keys from descendants of a focusable custom region", async () => {
+    const user = userEvent.setup()
+    const onKeyDown = vi.fn()
+    render(
+      <GlobalHotkeys keyName="r,c" onKeyDown={onKeyDown}>
+        <div data-testid="custom-region">
+          <button>Nested control</button>
+        </div>
+      </GlobalHotkeys>
+    )
+    screen.getByTestId("custom-region").tabIndex = 0
+    screen.getByRole("button").focus()
+    await user.keyboard("rc")
+    expect(onKeyDown).not.toHaveBeenCalled()
+  })
 })

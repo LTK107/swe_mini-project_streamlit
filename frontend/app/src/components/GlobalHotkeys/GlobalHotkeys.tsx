@@ -32,6 +32,18 @@ function normalizeKey(key: string): string {
   return key === "Escape" || key === "Esc" ? "esc" : key.toLowerCase()
 }
 
+/** Focusable custom regions own their single-letter keyboard interactions. */
+function isFromFocusableWidget(event: KeyboardEvent): boolean {
+  return event.composedPath().some(
+    target =>
+      target instanceof HTMLElement &&
+      target.hasAttribute("tabindex") &&
+      target.tabIndex >= 0 &&
+      // The app's main landmark is focusable for skip navigation.
+      !target.matches("a, button, input, main, select, summary, textarea")
+  )
+}
+
 /** Handles Streamlit's single-key global shortcuts, ignoring Alt/Ctrl/Cmd chords. */
 export function GlobalHotkeys({
   keyName,
@@ -70,11 +82,14 @@ export function GlobalHotkeys({
         event.metaKey ||
         (event.shiftKey && normalizedKey.length !== 1)
       if (
+        event.defaultPrevented ||
         !configuredKeys.has(normalizedKey) ||
         activeKeys.has(normalizedKey) ||
         event.repeat ||
         hasModifier ||
-        isKeyboardEventFromEditableTarget(event)
+        isKeyboardEventFromEditableTarget(event) ||
+        ((normalizedKey === "r" || normalizedKey === "c") &&
+          isFromFocusableWidget(event))
       ) {
         return
       }
@@ -82,16 +97,16 @@ export function GlobalHotkeys({
       activeKeys.add(normalizedKey)
       keyDownHandlerRef.current?.(normalizedKey, event)
     }
-
     const handleKeyUp = (event: KeyboardEvent): void => {
-      // Skip events with a non-string `key` so `normalizeKey` does not throw
-      // (synthetic `Event`s from hosts, extensions, or tests omit `key`).
+      // Skip synthetic events that do not provide a keyboard key.
       if (typeof event.key !== "string") {
         return
       }
 
       const normalizedKey = normalizeKey(event.key)
-      if (!activeKeys.delete(normalizedKey)) {
+      const wasActive = activeKeys.delete(normalizedKey)
+
+      if (!wasActive || event.defaultPrevented) {
         return
       }
 
